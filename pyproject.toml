@@ -43,7 +43,7 @@ managed = true
 add-bounds = "major"
 
 [tool.uv.sources]
-aereo = { path = "../aer/projects/aer-core", editable = true }
+aereo = { path = "../aereo/projects/aereo", editable = true }
 
 [tool.uv.workspace]
 members = ["projects/*"]
