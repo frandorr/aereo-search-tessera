@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-polylith-bricks"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aer-search-tessera"
+name = "aereo-search-tessera"
 version = "1.0.0"
 description = "Polylith project for the search-tessera plugin"
 readme = "README.md"
@@ -23,7 +23,7 @@ authors = [{ name = "AER Team" }]
 requires-python = ">=3.12"
 
 dependencies = [
-    "aer-eo",
+    "aereo",
     "geopandas>=1.1.2,<2.0.0",
     "pandera[geopandas]>=0.24.0,<0.25.0",
     "pyarrow>=15.0.0",
@@ -32,10 +32,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/frandorr/aer-search-tessera"
-Repository = "https://github.com/frandorr/aer-search-tessera"
-Issues = "https://github.com/frandorr/aer-search-tessera/issues"
-Documentation = "https://frandorr.github.io/aer-search-tessera"
+Homepage = "https://github.com/frandorr/aereo-search-tessera"
+Repository = "https://github.com/frandorr/aereo-search-tessera"
+Issues = "https://github.com/frandorr/aereo-search-tessera/issues"
+Documentation = "https://frandorr.github.io/aereo-search-tessera"
 
 [project.entry-points."aer.plugins"]
 search_tessera = "aer.search_tessera.core:TesseraSearchPlugin"
@@ -46,4 +46,4 @@ build.hooks.polylith-bricks = {}
 build.targets.wheel.packages = ["aer"]
 
 [tool.polylith]
-bricks."../../components/aer/search_tessera" = "aer/search_tessera"
+bricks."../../components/aereo/search_tessera" = "aer/search_tessera"

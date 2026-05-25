@@ -1,5 +1,14 @@
 {
   "venvPath": ".",
   "venv": ".venv",
-  "extraPaths": ["components", "bases"]
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": false,
+  "pythonVersion": "3.13",
+  "autoImportCompletions": true,
+  "useLibraryCodeForTypes": true,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownArgumentType": false,
+  "reportMissingImports": true,
+  "extraPaths": ["components", "bases", "development"]
 }

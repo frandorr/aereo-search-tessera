@@ -87,7 +87,7 @@ def _ensure_registry(cache_path: Path, url: str, refresh: bool = False) -> Path:
     logger.info(f"Downloading GeoTessera registry ({url}) ...")
     from urllib.request import Request, urlopen
 
-    req = Request(url, headers={"User-Agent": "aer-search-tessera"})
+    req = Request(url, headers={"User-Agent": "aereo-search-tessera"})
     resp = urlopen(req, timeout=120)
     total = int(resp.headers.get("Content-Length", 0))
 
@@ -102,6 +102,28 @@ def _ensure_registry(cache_path: Path, url: str, refresh: bool = False) -> Path:
     tmp_path.rename(cache_path)
     logger.info(f"Registry cached at {cache_path}")
     return cache_path
+
+
+def check_href_exists(href: str, timeout: float = 5.0) -> bool:
+    """Check if the href (URL or local path) actually exists."""
+    if href.startswith("http://") or href.startswith("https://"):
+        from urllib.request import Request, urlopen
+        try:
+            req = Request(href, method="HEAD", headers={"User-Agent": "aereo-search-tessera"})
+            with urlopen(req, timeout=timeout) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
+    else:
+        from urllib.parse import urlparse
+        if href.startswith("file://"):
+            path_str = urlparse(href).path
+        else:
+            path_str = href
+        try:
+            return Path(path_str).exists()
+        except Exception:
+            return False
 
 
 class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
@@ -218,6 +240,16 @@ class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
                 # Apply high-precision geometry intersection if a shape was provided
                 if intersects is not None:
                     gdf = gdf[gdf.intersects(intersects)]
+
+                # Check if href exists if check_href is True
+                if effective_params.get("check_href", False) and not gdf.empty:
+                    from concurrent.futures import ThreadPoolExecutor
+                    hrefs = gdf["href"].tolist()
+                    max_workers = min(32, len(hrefs))
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        exists_flags = list(executor.map(check_href_exists, hrefs))
+                    gdf = gdf[exists_flags]
+
                 if not gdf.empty:
                     gdfs.append(gdf)
 
