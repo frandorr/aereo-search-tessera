@@ -12,12 +12,12 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "aer-search-tessera",
-    "aer-search-tessera-workspace",
+    "aereo-search-tessera",
+    "aereo-search-tessera-workspace",
 ]
 
 [[package]]
-name = "aer-eo"
+name = "aereo"
 version = "1.0.2"
 source = { editable = "../aer/projects/aer-core" }
 dependencies = [
@@ -52,11 +52,11 @@ requires-dist = [
 ]
 
 [[package]]
-name = "aer-search-tessera"
+name = "aereo-search-tessera"
 version = "1.0.0"
-source = { editable = "projects/aer-search-tessera" }
+source = { editable = "projects/aereo-search-tessera" }
 dependencies = [
-    { name = "aer-eo" },
+    { name = "aereo" },
     { name = "geopandas" },
     { name = "pandera", extra = ["geopandas"] },
     { name = "pyarrow" },
@@ -66,7 +66,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aer-eo", editable = "../aer/projects/aer-core" },
+    { name = "aereo", editable = "../aer/projects/aer-core" },
     { name = "geopandas", specifier = ">=1.1.2,<2.0.0" },
     { name = "pandera", extras = ["geopandas"], specifier = ">=0.24.0,<0.25.0" },
     { name = "pyarrow", specifier = ">=15.0.0" },
@@ -75,11 +75,11 @@ requires-dist = [
 ]
 
 [[package]]
-name = "aer-search-tessera-workspace"
+name = "aereo-search-tessera-workspace"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "aer-eo" },
+    { name = "aereo" },
     { name = "geopandas" },
     { name = "pandera", extra = ["geopandas"] },
     { name = "pyarrow" },
@@ -98,7 +98,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aer-eo", editable = "../aer/projects/aer-core" },
+    { name = "aereo", editable = "../aer/projects/aer-core" },
     { name = "geopandas", specifier = ">=1.1.2,<2.0.0" },
     { name = "pandera", extras = ["geopandas"], specifier = ">=0.24.0,<0.25.0" },
     { name = "pyarrow", specifier = ">=15.0.0" },

@@ -1,4 +1,4 @@
-"""Unit tests for the aer-search-tessera plugin."""
+"""Unit tests for the aereo-search-tessera plugin."""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -283,7 +283,7 @@ def test_download_from_href(plugin: TesseraSearchPlugin, profile_tessera: AerPro
     import urllib.request
 
     dest_file = tmp_path / "tile.npy"
-    req = urllib.request.Request(href, headers={"User-Agent": "aer-search-tessera-test"})
+    req = urllib.request.Request(href, headers={"User-Agent": "aereo-search-tessera-test"})
     with urllib.request.urlopen(req, timeout=120) as response, open(dest_file, "wb") as out_file:
         out_file.write(response.read())
 

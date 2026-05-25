@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aer-search-tessera-workspace"
+name = "aereo-search-tessera-workspace"
 version = "1.0.0"
-description = "aer plugin for GeoTessera satellite embeddings search"
+description = "aereo plugin for GeoTessera satellite embeddings search"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -21,7 +21,7 @@ classifiers = [
 ]
 authors = [{ name = "AER Team" }]
 dependencies = [
-    "aer-eo",
+    "aereo",
     "geopandas>=1.1.2,<2.0.0",
     "pandera[geopandas]>=0.24.0,<0.25.0",
     "pyarrow>=15.0.0",
@@ -33,17 +33,17 @@ dependencies = [
 search_tessera = "aer.search_tessera.core:TesseraSearchPlugin"
 
 [project.urls]
-Homepage = "https://github.com/frandorr/aer-search-tessera"
-Repository = "https://github.com/frandorr/aer-search-tessera"
-Issues = "https://github.com/frandorr/aer-search-tessera/issues"
-Documentation = "https://frandorr.github.io/aer-search-tessera"
+Homepage = "https://github.com/frandorr/aereo-search-tessera"
+Repository = "https://github.com/frandorr/aereo-search-tessera"
+Issues = "https://github.com/frandorr/aereo-search-tessera/issues"
+Documentation = "https://frandorr.github.io/aereo-search-tessera"
 
 [tool.uv]
 managed = true
 add-bounds = "major"
 
 [tool.uv.sources]
-aer-eo = { path = "../aer/projects/aer-core", editable = true }
+aereo = { path = "../aer/projects/aer-core", editable = true }
 
 [tool.uv.workspace]
 members = ["projects/*"]
