@@ -43,7 +43,7 @@ search_tessera = "aereo.search_tessera.core:TesseraSearchPlugin"
 [tool.hatch]
 build.dev-mode-dirs = ["../../components", "../../bases", "../../development", "."]
 build.hooks.polylith-bricks = {}
-build.targets.wheel.packages = ["aer"]
+build.targets.wheel.packages = ["aereo"]
 
 [tool.polylith]
-bricks."../../components/aereo/search_tessera" = "aer/search_tessera"
+bricks."../../components/aereo/search_tessera" = "aereo/search_tessera"
