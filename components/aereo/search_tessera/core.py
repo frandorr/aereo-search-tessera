@@ -16,7 +16,7 @@ from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
 from structlog import get_logger
 
-from aereo.interfaces import AereoProfile, SearchProvider
+from aereo.interfaces import AereoProfile, PluginParam, SearchProvider
 from aereo.schemas import AssetSchema
 from pandera.typing.geopandas import GeoDataFrame
 
@@ -130,6 +130,14 @@ class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
     """Search provider for GeoTessera satellite embeddings."""
 
     supported_collections: Sequence[str] = ["geotessera"]
+
+    optional_params = [
+        PluginParam(name="base_url", type="str", description="Base URL for GeoTessera tiles", default="https://dl2.geotessera.org"),
+        PluginParam(name="tessera_version", type="str", description="GeoTessera dataset version", default="v1"),
+        PluginParam(name="registry_path", type="path", description="Local path to registry.parquet (skips download if present)"),
+        PluginParam(name="refresh_registry", type="bool", description="Force re-download of registry.parquet", default=False),
+        PluginParam(name="check_href", type="bool", description="Validate tile URLs exist before returning", default=False),
+    ]
 
     @override
     def search(
