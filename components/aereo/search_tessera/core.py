@@ -16,8 +16,8 @@ from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
 from structlog import get_logger
 
-from aer.interfaces import AerProfile, SearchProvider
-from aer.schemas import AssetSchema
+from aereo.interfaces import AereoProfile, SearchProvider
+from aereo.schemas import AssetSchema
 from pandera.typing.geopandas import GeoDataFrame
 
 logger = get_logger()
@@ -134,7 +134,7 @@ class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
     @override
     def search(
         self,
-        profiles: Sequence[AerProfile],
+        profiles: Sequence[AereoProfile],
         intersects: BaseGeometry | None = None,
         start_datetime: datetime | None = None,
         end_datetime: datetime | None = None,
