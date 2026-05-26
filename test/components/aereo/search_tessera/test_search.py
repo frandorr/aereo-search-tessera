@@ -9,11 +9,11 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from aer.interfaces import AerProfile
-from aer.schemas import AssetSchema
+from aereo.interfaces import AereoProfile
+from aereo.schemas import AssetSchema
 from shapely.geometry import box
 
-from aer.search_tessera.core import (
+from aereo.search_tessera.core import (
     DEFAULT_REGISTRY_PATH,
     TesseraSearchPlugin,
     tile_to_bounds,
@@ -65,8 +65,8 @@ def plugin() -> TesseraSearchPlugin:
 
 
 @pytest.fixture
-def profile_tessera() -> AerProfile:
-    return AerProfile(
+def profile_tessera() -> AereoProfile:
+    return AereoProfile(
         name="tessera_test",
         resolution=10.0,
         collections={"geotessera": ["all"]},
@@ -105,7 +105,7 @@ def test_tile_utm_info_pixel_alignment() -> None:
 
 
 def test_search_empty_region(
-    plugin: TesseraSearchPlugin, profile_tessera: AerProfile, mock_registry_file: Path
+    plugin: TesseraSearchPlugin, profile_tessera: AereoProfile, mock_registry_file: Path
 ) -> None:
     """Verify search in a region with no tiles returns empty GeoDataFrame with correct schema."""
     # Search somewhere in the ocean with no tiles in mock registry
@@ -122,7 +122,7 @@ def test_search_empty_region(
 
 
 def test_search_schema_validation(
-    plugin: TesseraSearchPlugin, profile_tessera: AerProfile, mock_registry_file: Path
+    plugin: TesseraSearchPlugin, profile_tessera: AereoProfile, mock_registry_file: Path
 ) -> None:
     """Verify search result passes AssetSchema validation."""
     intersects = box(-0.1, 51.4, 0.0, 51.5)
@@ -140,7 +140,7 @@ def test_search_schema_validation(
 
 
 def test_search_href_is_real_url(
-    plugin: TesseraSearchPlugin, profile_tessera: AerProfile, mock_registry_file: Path
+    plugin: TesseraSearchPlugin, profile_tessera: AereoProfile, mock_registry_file: Path
 ) -> None:
     """Verify that href URLs are generated correctly."""
     intersects = box(-0.1, 51.4, 0.0, 51.5)
@@ -158,7 +158,7 @@ def test_search_href_is_real_url(
 
 
 def test_search_temporal_filter(
-    plugin: TesseraSearchPlugin, profile_tessera: AerProfile, mock_registry_file: Path
+    plugin: TesseraSearchPlugin, profile_tessera: AereoProfile, mock_registry_file: Path
 ) -> None:
     """Verify temporal range filtering works correctly."""
     intersects = box(-0.1, 51.4, 0.0, 51.5)
@@ -187,7 +187,7 @@ def test_search_temporal_filter(
 
 
 def test_search_spatial_filter(
-    plugin: TesseraSearchPlugin, profile_tessera: AerProfile, mock_registry_file: Path
+    plugin: TesseraSearchPlugin, profile_tessera: AereoProfile, mock_registry_file: Path
 ) -> None:
     """Verify spatial bounding box filtering works correctly."""
     # Search London
@@ -214,7 +214,7 @@ def test_search_spatial_filter(
 
 
 def test_search_params_override(
-    plugin: TesseraSearchPlugin, profile_tessera: AerProfile, mock_registry_file: Path
+    plugin: TesseraSearchPlugin, profile_tessera: AereoProfile, mock_registry_file: Path
 ) -> None:
     """Verify that override params are respected."""
     intersects = box(-0.1, 51.4, 0.0, 51.5)
@@ -233,7 +233,7 @@ def test_search_params_override(
     assert href.startswith("https://my-custom-cdn.org/v99/global_0.1_degree_representation/2025/")
 
 
-def test_search_registry_path_not_exists(plugin: TesseraSearchPlugin, profile_tessera: AerProfile) -> None:
+def test_search_registry_path_not_exists(plugin: TesseraSearchPlugin, profile_tessera: AereoProfile) -> None:
     """Verify that search raises FileNotFoundError if explicit registry_path is missing."""
     with pytest.raises(FileNotFoundError):
         plugin.search(
@@ -243,7 +243,7 @@ def test_search_registry_path_not_exists(plugin: TesseraSearchPlugin, profile_te
 
 
 @pytest.mark.integration
-def test_search_real_registry(plugin: TesseraSearchPlugin, profile_tessera: AerProfile) -> None:
+def test_search_real_registry(plugin: TesseraSearchPlugin, profile_tessera: AereoProfile) -> None:
     """Integration test using the real registry cached on system."""
     if not DEFAULT_REGISTRY_PATH.exists():
         pytest.skip("Real registry.parquet not found under default path.")
@@ -263,7 +263,7 @@ def test_search_real_registry(plugin: TesseraSearchPlugin, profile_tessera: AerP
 
 
 @pytest.mark.integration
-def test_download_from_href(plugin: TesseraSearchPlugin, profile_tessera: AerProfile, tmp_path: Path) -> None:
+def test_download_from_href(plugin: TesseraSearchPlugin, profile_tessera: AereoProfile, tmp_path: Path) -> None:
     """Integration test that downloads a tile from CDN to verify correctness."""
     if not DEFAULT_REGISTRY_PATH.exists():
         pytest.skip("Real registry.parquet not found under default path.")
