@@ -150,12 +150,12 @@ class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
     ) -> GeoDataFrame[AssetSchema]:
         """Search GeoTessera registry and return AssetSchema-compliant GeoDataFrame."""
         if not profiles:
-            return self._empty_result()
+            return self.empty_result()
 
         # Check if geotessera collection is requested by any profile
         tessera_profiles = [p for p in profiles if "geotessera" in p.collections]
         if not tessera_profiles:
-            return self._empty_result()
+            return self.empty_result()
 
         # Bounding box for region
         if intersects is not None:
@@ -179,7 +179,7 @@ class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
             matching_years.append(yr)
 
         if not matching_years:
-            return self._empty_result()
+            return self.empty_result()
 
         # Query and concatenate for each unique profile's search params configuration
         gdfs = []
@@ -262,7 +262,7 @@ class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
                     gdfs.append(gdf)
 
         if not gdfs:
-            return self._empty_result()
+            return self.empty_result()
 
         # Concatenate and drop duplicates (e.g. if multiple profiles matched the same tiles)
         final_gdf = pd.concat(gdfs, ignore_index=True) if len(gdfs) > 1 else gdfs[0]
@@ -280,10 +280,4 @@ class TesseraSearchPlugin(SearchProvider, plugin_abstract=False):
             return dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
 
-    def _empty_result(self) -> GeoDataFrame[AssetSchema]:
-        columns = list(AssetSchema.to_schema().columns.keys())
-        if "geometry" not in columns:
-            columns.append("geometry")
-        gdf = gpd.GeoDataFrame(columns=columns, geometry="geometry")
-        validated = AssetSchema.validate(gdf)
-        return cast(GeoDataFrame[AssetSchema], cast(object, validated))
+
