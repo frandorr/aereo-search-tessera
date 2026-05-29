@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Polylith project for the search-tessera plugin"
 readme = "README.md"
 license = "Apache-2.0"
-keywords = ["satellite", "remote-sensing", "earth-observation", "aer", "plugin", "embeddings", "geotessera"]
+keywords = ["satellite", "remote-sensing", "earth-observation", "aereo", "plugin", "embeddings", "geotessera"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
