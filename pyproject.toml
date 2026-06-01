@@ -32,6 +32,9 @@ dependencies = [
 [project.entry-points."aereo.plugins"]
 search_tessera = "aereo.search_tessera.core:TesseraSearchPlugin"
 
+[project.entry-points."aereo.search"]
+tessera = "aereo.search_tessera.nodes"
+
 [project.urls]
 Homepage = "https://github.com/frandorr/aereo-search-tessera"
 Repository = "https://github.com/frandorr/aereo-search-tessera"
