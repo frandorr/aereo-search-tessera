@@ -109,6 +109,7 @@ def test_search_schema_validation(plugin: SearchTessera, mock_registry_file: Pat
     assert len(result) == 1
     validated = AssetSchema.validate(result)
     assert len(validated) == 1
+    assert result.iloc[0]["crs"] == "EPSG:32630"
 
 
 def test_search_href_is_real_url(plugin: SearchTessera, mock_registry_file: Path) -> None:
@@ -173,6 +174,7 @@ def test_search_spatial_filter(plugin: SearchTessera, mock_registry_file: Path) 
     result_ba = searcher_ba()
     assert len(result_ba) == 1
     assert result_ba.iloc[0]["id"] == "grid_-58.45_-34.65_2025"
+    assert result_ba.iloc[0]["crs"] == "EPSG:32721"
 
 
 def test_search_params_override(mock_registry_file: Path) -> None:

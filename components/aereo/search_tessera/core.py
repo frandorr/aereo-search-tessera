@@ -19,7 +19,6 @@ from aereo.schemas import AssetSchema
 from pandera.typing.geopandas import GeoDataFrame
 from pyproj import Transformer
 from shapely.geometry import box
-from shapely.geometry.base import BaseGeometry
 from structlog import get_logger
 
 logger = get_logger()
@@ -129,7 +128,6 @@ class SearchTessera(SearchProvider):
     """Search provider for GeoTessera satellite embeddings."""
 
     supported_collections: Sequence[str] = ["geotessera"]
-    intersects: BaseGeometry | None = None
     start_datetime: datetime | None = None
     end_datetime: datetime | None = None
     base_url: str = "https://dl2.geotessera.org"
@@ -212,6 +210,7 @@ class SearchTessera(SearchProvider):
                     "start_time": datetime(year, 1, 1, tzinfo=timezone.utc),
                     "end_time": datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
                     "href": f"{base_url}/{tessera_version}/global_0.1_degree_representation/{year}/{grid_name}/{grid_name}.npy",
+                    "crs": utm["crs"],
                     "tile_lon": lon,
                     "tile_lat": lat,
                     "tile_year": year,
