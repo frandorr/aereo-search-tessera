@@ -385,10 +385,11 @@ class SearchTessera(SearchProvider):
         base_url = self.base_url
         variant = self.tessera_variant
         rows: list[dict[str, Any]] = []
-        for _, tile in tiles_df.iterrows():
-            lon = float(cast(Any, tile["lon"]))
-            lat = float(cast(Any, tile["lat"]))
-            year = int(cast(Any, tile["year"]))
+        for raw in tiles_df.itertuples(index=False):
+            tile = cast(Any, raw)
+            lon = float(tile.lon)
+            lat = float(tile.lat)
+            year = int(tile.year)
             utm = tile_utm_info(lon, lat)
             grid_name = f"grid_{lon:.2f}_{lat:.2f}"
             wgs_bounds = tile_to_bounds(lon, lat)
@@ -409,8 +410,8 @@ class SearchTessera(SearchProvider):
                     "tile_utm_epsg": utm["epsg"],
                     "tile_utm_bbox": utm["utm_bbox"],
                     "tile_shape": utm["shape"],
-                    "tile_hash": tile.get("hash"),
-                    "tile_file_size": tile.get("file_size"),
+                    "tile_hash": getattr(tile, "hash", None),
+                    "tile_file_size": getattr(tile, "file_size", None),
                     "tessera_version": version_norm,
                     "tessera_variant": variant,
                 }
