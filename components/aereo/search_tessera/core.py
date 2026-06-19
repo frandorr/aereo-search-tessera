@@ -23,7 +23,66 @@ from structlog import get_logger
 
 logger = get_logger()
 
-DEFAULT_REGISTRY_PATH = Path.home() / ".cache" / "geotessera" / "registry.parquet"
+# Default public S3 bucket published by GeoTessera.
+TESSERA_BASE_URL = "https://s3.us-west-2.amazonaws.com/tessera-embeddings"
+
+# Directory name used for the default ``vultr`` variant on S3.
+EMBEDDINGS_DIR_NAME = "global_0.1_degree_representation"
+
+# Default dataset variant. The bare ``global_0.1_degree_representation`` dir on
+# S3 corresponds to this variant; named variants get a ``.<name>`` suffix.
+DEFAULT_VARIANT = "vultr"
+
+
+def _parse_dataset_version(spec: str) -> tuple[str, str]:
+    """Parse a flexible dataset-version spec.
+
+    Returns ``(s3_path_component, normalized_version)``. Accepts inputs like
+    ``"v1"``, ``"1"``, ``"1.0"``, ``"v1.0"`` (all → ``("v1", "1.0")``) and
+    ``"v1.1"``, ``"1.1"`` (→ ``("v1.1", "1.1")``). The S3 layout uses ``v1/``
+    for the 1.0 series.
+
+    Args:
+        spec: Version string such as ``"v1"``, ``"1.0"``, ``"v1.1"``.
+
+    Returns:
+        Tuple of ``(path_component, normalized_version)``.
+    """
+    s = spec.strip()
+    if s.startswith("v"):
+        s = s[1:]
+    parts = s.split(".")
+    major = parts[0]
+    minor = parts[1] if len(parts) > 1 else "0"
+    norm = f"{major}.{minor}"
+    path = f"v{major}" if minor == "0" else f"v{major}.{minor}"
+    return path, norm
+
+
+def _variant_subdir(variant: str) -> str:
+    """Map a variant name to its embeddings-dir name on S3.
+
+    Args:
+        variant: Dataset variant, e.g. ``"vultr"`` or ``"cambridge"``.
+
+    Returns:
+        Embeddings subdirectory name.
+    """
+    if variant == DEFAULT_VARIANT:
+        return EMBEDDINGS_DIR_NAME
+    return f"{EMBEDDINGS_DIR_NAME}.{variant}"
+
+
+def _default_registry_cache_path(version_path: str) -> Path:
+    """Return the default local cache path for a versioned manifest.
+
+    Args:
+        version_path: Version path component from :func:`_parse_dataset_version`.
+
+    Returns:
+        Cache path such as ``~/.cache/geotessera/v1.1/manifest.parquet``.
+    """
+    return Path.home() / ".cache" / "geotessera" / version_path / "manifest.parquet"
 
 
 def tile_to_bounds(lon: float, lat: float) -> tuple[float, float, float, float]:
@@ -52,6 +111,11 @@ def tile_utm_info(tile_lon: float, tile_lat: float, pixel_size: float = 10.0) ->
     }
 
 
+def _available_columns(registry_path: Path) -> list[str]:
+    """Return the column names available in a parquet file."""
+    return pq.ParquetFile(registry_path).schema.names
+
+
 def load_tiles_for_region(
     bbox: tuple[float, float, float, float],
     year: int,
@@ -60,9 +124,14 @@ def load_tiles_for_region(
     """Query tiles from parquet with predicate pushdown (~40ms)."""
     min_lon, min_lat, max_lon, max_lat = bbox
     expansion = 0.05
+
+    available_columns = _available_columns(registry_path)
+    desired_columns = ["lon", "lat", "year", "hash", "file_size", "grid_size"]
+    columns = [c for c in desired_columns if c in available_columns]
+
     table = pq.read_table(
         registry_path,
-        columns=["lon", "lat", "year", "hash", "file_size"],
+        columns=columns,
         filters=[
             ("year", "=", year),
             ("lon", ">=", min_lon - expansion),
@@ -71,11 +140,18 @@ def load_tiles_for_region(
             ("lat", "<=", max_lat + expansion),
         ],
     )
-    return table.to_pandas().drop_duplicates(subset=["year", "lon", "lat"])
+    df = table.to_pandas()
+
+    # New manifests use ``grid_size`` for the embedding file size; old ones used
+    # ``file_size``. Expose ``file_size`` consistently for downstream metadata.
+    if "file_size" not in df.columns and "grid_size" in df.columns:
+        df["file_size"] = df["grid_size"]
+
+    return df.drop_duplicates(subset=["year", "lon", "lat"])
 
 
 def _ensure_registry(cache_path: Path, url: str, refresh: bool = False) -> Path:
-    """Download registry.parquet if not cached, or if refresh is True."""
+    """Download registry parquet if not cached, or if refresh is True."""
     if cache_path.exists() and not refresh:
         return cache_path
 
@@ -130,9 +206,11 @@ class SearchTessera(SearchProvider):
     supported_collections: Sequence[str] = ["geotessera"]
     start_datetime: datetime | None = None
     end_datetime: datetime | None = None
-    base_url: str = "https://dl2.geotessera.org"
+    base_url: str = TESSERA_BASE_URL
     tessera_version: str = "v1"
+    tessera_variant: str = DEFAULT_VARIANT
     registry_path: Path | None = None
+    registry_filename: str = "manifest.parquet"
     refresh_registry: bool = False
     check_href: bool = False
 
@@ -166,9 +244,11 @@ class SearchTessera(SearchProvider):
         if not matching_years:
             return self.empty_result()
 
-        # Resolve paths and options
+        # Resolve version, variant and paths
         base_url = self.base_url
-        tessera_version = self.tessera_version
+        version_path, version_norm = _parse_dataset_version(self.tessera_version)
+        variant = self.tessera_variant
+        embeddings_subdir = _variant_subdir(variant)
         refresh_registry = self.refresh_registry
 
         # Handle registry path and bootstrapping
@@ -177,8 +257,8 @@ class SearchTessera(SearchProvider):
             if not registry_path.exists():
                 raise FileNotFoundError(f"Registry file not found: {registry_path}")
         else:
-            registry_path = DEFAULT_REGISTRY_PATH.expanduser().resolve()
-            url = f"{base_url}/{tessera_version}/registry.parquet"
+            registry_path = _default_registry_cache_path(version_path)
+            url = f"{base_url}/{version_path}/{self.registry_filename}"
             _ensure_registry(registry_path, url, refresh=refresh_registry)
 
         # Load tiles from parquet
@@ -209,7 +289,7 @@ class SearchTessera(SearchProvider):
                     "geometry": box(*wgs_bounds),
                     "start_time": datetime(year, 1, 1, tzinfo=timezone.utc),
                     "end_time": datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
-                    "href": f"{base_url}/{tessera_version}/global_0.1_degree_representation/{year}/{grid_name}/{grid_name}.npy",
+                    "href": f"{base_url}/{version_path}/{embeddings_subdir}/{year}/{grid_name}/{grid_name}.npy",
                     "crs": utm["crs"],
                     "tile_lon": lon,
                     "tile_lat": lat,
@@ -218,7 +298,10 @@ class SearchTessera(SearchProvider):
                     "tile_utm_epsg": utm["epsg"],
                     "tile_utm_bbox": utm["utm_bbox"],
                     "tile_shape": utm["shape"],
-                    "tile_hash": tile["hash"],
+                    "tile_hash": tile.get("hash"),
+                    "tile_file_size": tile.get("file_size"),
+                    "tessera_version": version_norm,
+                    "tessera_variant": variant,
                 }
             )
 
