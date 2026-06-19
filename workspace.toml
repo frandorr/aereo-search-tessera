@@ -1,5 +1,5 @@
 [tool.polylith]
-namespace = "aer"
+namespace = "aereo"
 
 [tool.polylith.structure]
 theme = "loose"
