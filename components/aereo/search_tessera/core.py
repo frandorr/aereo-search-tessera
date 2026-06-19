@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -151,16 +152,17 @@ def tile_utm_info(tile_lon: float, tile_lat: float, pixel_size: float = 10.0) ->
     }
 
 
-def _available_columns(registry_path: Path) -> list[str]:
+@lru_cache(maxsize=8)
+def _available_columns(registry_path: Path) -> tuple[str, ...]:
     """Return the column names available in a parquet file.
 
     Args:
         registry_path: Path to the parquet registry.
 
     Returns:
-        List of column names in the parquet schema.
+        Tuple of column names in the parquet schema.
     """
-    return pq.ParquetFile(registry_path).schema.names
+    return tuple(pq.ParquetFile(registry_path).schema.names)
 
 
 def load_tiles_for_region(
