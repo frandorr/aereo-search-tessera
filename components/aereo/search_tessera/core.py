@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import geopandas as gpd
 import pandas as pd
@@ -50,6 +52,9 @@ DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 
 # Maximum parallel workers used when validating asset hrefs.
 MAX_HREF_CHECK_WORKERS = 32
+
+# User-Agent sent with HTTP requests to the GeoTessera CDN.
+USER_AGENT = "aereo-search-tessera"
 
 
 def _parse_dataset_version(spec: str) -> tuple[str, str]:
@@ -222,9 +227,8 @@ def _ensure_registry(cache_path: Path, url: str, refresh: bool = False) -> Path:
     tmp_path = cache_path.with_suffix(".tmp")
 
     logger.info(f"Downloading GeoTessera registry ({url}) ...")
-    from urllib.request import Request, urlopen
 
-    req = Request(url, headers={"User-Agent": "aereo-search-tessera"})
+    req = Request(url, headers={"User-Agent": USER_AGENT})
     resp = urlopen(req, timeout=120)
     total = int(resp.headers.get("Content-Length", 0))
 
@@ -257,15 +261,13 @@ def check_href_exists(href: str, timeout: float = 5.0) -> bool:
         Does not raise; all exceptions are swallowed and return False.
     """
     if href.startswith("http://") or href.startswith("https://"):
-        from urllib.request import Request, urlopen
         try:
-            req = Request(href, method="HEAD", headers={"User-Agent": "aereo-search-tessera"})
+            req = Request(href, method="HEAD", headers={"User-Agent": USER_AGENT})
             with urlopen(req, timeout=timeout) as resp:
                 return resp.status == 200
         except Exception:
             return False
     else:
-        from urllib.parse import urlparse
         if href.startswith("file://"):
             path_str = urlparse(href).path
         else:
