@@ -87,7 +87,15 @@ def _default_registry_cache_path(version_path: str) -> Path:
 
 
 def tile_to_bounds(lon: float, lat: float) -> tuple[float, float, float, float]:
-    """WGS84 bounds for a 0.1° tile centered at (lon, lat)."""
+    """WGS84 bounds for a 0.1° tile centered at (lon, lat).
+
+    Args:
+        lon: Tile center longitude.
+        lat: Tile center latitude.
+
+    Returns:
+        Bounding box as ``(min_lon, min_lat, max_lon, max_lat)``.
+    """
     return (lon - 0.05, lat - 0.05, lon + 0.05, lat + 0.05)
 
 
@@ -95,6 +103,14 @@ def tile_utm_info(tile_lon: float, tile_lat: float, pixel_size: float = 10.0) ->
     """Compute UTM EPSG, pixel-aligned bbox, and shape for a tile.
 
     Verified identical to GeoTessera's from_origin(xmin, ymax, 10.0, 10.0).
+
+    Args:
+        tile_lon: Tile center longitude.
+        tile_lat: Tile center latitude.
+        pixel_size: Pixel size in meters. Defaults to 10.0.
+
+    Returns:
+        Dictionary with keys ``epsg``, ``crs``, ``utm_bbox``, and ``shape``.
     """
     west, south, east, north = tile_to_bounds(tile_lon, tile_lat)
     zone = int((tile_lon + 180) / 6) + 1
@@ -113,7 +129,14 @@ def tile_utm_info(tile_lon: float, tile_lat: float, pixel_size: float = 10.0) ->
 
 
 def _available_columns(registry_path: Path) -> list[str]:
-    """Return the column names available in a parquet file."""
+    """Return the column names available in a parquet file.
+
+    Args:
+        registry_path: Path to the parquet registry.
+
+    Returns:
+        List of column names in the parquet schema.
+    """
     return pq.ParquetFile(registry_path).schema.names
 
 
@@ -122,7 +145,16 @@ def load_tiles_for_region(
     year: int,
     registry_path: Path,
 ) -> pd.DataFrame:
-    """Query tiles from parquet with predicate pushdown (~40ms)."""
+    """Query tiles from parquet with predicate pushdown (~40ms).
+
+    Args:
+        bbox: Region bounds as ``(min_lon, min_lat, max_lon, max_lat)``.
+        year: Year to filter.
+        registry_path: Path to the parquet registry.
+
+    Returns:
+        DataFrame of matching tile metadata with normalized ``file_size``.
+    """
     min_lon, min_lat, max_lon, max_lat = bbox
     expansion = 0.05
 
@@ -152,7 +184,19 @@ def load_tiles_for_region(
 
 
 def _ensure_registry(cache_path: Path, url: str, refresh: bool = False) -> Path:
-    """Download registry parquet if not cached, or if refresh is True."""
+    """Download registry parquet if not cached, or if refresh is True.
+
+    Args:
+        cache_path: Local path where the registry should be stored.
+        url: Remote URL to download.
+        refresh: Force re-download even if cached. Defaults to False.
+
+    Returns:
+        Path to the cached registry file.
+
+    Raises:
+        urllib.error.URLError: If the remote request fails.
+    """
     if cache_path.exists() and not refresh:
         return cache_path
 
@@ -180,7 +224,18 @@ def _ensure_registry(cache_path: Path, url: str, refresh: bool = False) -> Path:
 
 
 def check_href_exists(href: str, timeout: float = 5.0) -> bool:
-    """Check if the href (URL or local path) actually exists."""
+    """Check if the href (URL or local path) actually exists.
+
+    Args:
+        href: URL, ``file://`` URL, or local filesystem path.
+        timeout: Timeout in seconds for HTTP checks. Defaults to 5.0.
+
+    Returns:
+        True if the resource exists, False otherwise.
+
+    Raises:
+        Does not raise; all exceptions are swallowed and return False.
+    """
     if href.startswith("http://") or href.startswith("https://"):
         from urllib.request import Request, urlopen
         try:
@@ -202,7 +257,12 @@ def check_href_exists(href: str, timeout: float = 5.0) -> bool:
 
 
 class SearchTessera(SearchProvider):
-    """Search provider for GeoTessera satellite embeddings."""
+    """Search provider for GeoTessera satellite embeddings.
+
+    Queries the GeoTessera registry parquet for tiles intersecting a given
+    geometry and time range, then returns an ``AssetSchema``-validated
+    GeoDataFrame with per-tile metadata and asset hrefs.
+    """
 
     supported_collections: Sequence[str] = ["geotessera"]
 
@@ -242,6 +302,10 @@ class SearchTessera(SearchProvider):
 
         Returns:
             Validated GeoDataFrame containing matched tile metadata.
+
+        Raises:
+            FileNotFoundError: If an explicit ``registry_path`` does not exist.
+            TypeError: If ``intersects`` could not be normalized to a geometry.
         """
         # Bounding box for region
         geom = self._intersects_geometry()
@@ -353,7 +417,14 @@ class SearchTessera(SearchProvider):
 
     @staticmethod
     def _normalize_datetime(dt: datetime | None) -> datetime | None:
-        """Ensure datetime is timezone-aware UTC."""
+        """Ensure datetime is timezone-aware UTC.
+
+        Args:
+            dt: Datetime to normalize, or None.
+
+        Returns:
+            Timezone-aware UTC datetime, or None if input was None.
+        """
         if dt is None:
             return None
         if dt.tzinfo is None:
