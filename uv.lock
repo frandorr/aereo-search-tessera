@@ -87,7 +87,7 @@ requires-dist = [
 
 [[package]]
 name = "aereo-search-tessera"
-version = "1.1.0"
+version = "1.0.0"
 source = { editable = "projects/aereo-search-tessera" }
 dependencies = [
     { name = "aereo" },
@@ -112,7 +112,7 @@ requires-dist = [
 
 [[package]]
 name = "aereo-search-tessera-workspace"
-version = "1.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "aereo" },
