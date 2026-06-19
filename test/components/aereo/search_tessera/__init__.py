@@ -1,1 +1,1 @@
-# Unit tests for search_tessera
+"""Unit tests for the aereo-search-tessera plugin."""
