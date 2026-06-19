@@ -34,6 +34,23 @@ EMBEDDINGS_DIR_NAME = "global_0.1_degree_representation"
 # S3 corresponds to this variant; named variants get a ``.<name>`` suffix.
 DEFAULT_VARIANT = "vultr"
 
+# Spatial resolution of a GeoTessera tile in decimal degrees.
+TESSERA_TILE_RESOLUTION = 0.1
+
+# Half the tile resolution; used to expand a tile center into a bounding box
+# or to widen a query bbox to include neighbouring tiles.
+TESSERA_TILE_HALF_RESOLUTION = TESSERA_TILE_RESOLUTION / 2
+
+# Inclusive year range currently covered by the public GeoTessera registry.
+MIN_TESSERA_YEAR = 2017
+MAX_TESSERA_YEAR = 2025
+
+# Chunk size for downloading the registry parquet (8 MiB).
+DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024
+
+# Maximum parallel workers used when validating asset hrefs.
+MAX_HREF_CHECK_WORKERS = 32
+
 
 def _parse_dataset_version(spec: str) -> tuple[str, str]:
     """Parse a flexible dataset-version spec.
@@ -87,7 +104,7 @@ def _default_registry_cache_path(version_path: str) -> Path:
 
 
 def tile_to_bounds(lon: float, lat: float) -> tuple[float, float, float, float]:
-    """WGS84 bounds for a 0.1° tile centered at (lon, lat).
+    """WGS84 bounds for a GeoTessera tile centered at (lon, lat).
 
     Args:
         lon: Tile center longitude.
@@ -96,7 +113,8 @@ def tile_to_bounds(lon: float, lat: float) -> tuple[float, float, float, float]:
     Returns:
         Bounding box as ``(min_lon, min_lat, max_lon, max_lat)``.
     """
-    return (lon - 0.05, lat - 0.05, lon + 0.05, lat + 0.05)
+    half = TESSERA_TILE_HALF_RESOLUTION
+    return (lon - half, lat - half, lon + half, lat + half)
 
 
 def tile_utm_info(tile_lon: float, tile_lat: float, pixel_size: float = 10.0) -> dict[str, Any]:
@@ -156,7 +174,7 @@ def load_tiles_for_region(
         DataFrame of matching tile metadata with normalized ``file_size``.
     """
     min_lon, min_lat, max_lon, max_lat = bbox
-    expansion = 0.05
+    expansion = TESSERA_TILE_HALF_RESOLUTION
 
     available_columns = _available_columns(registry_path)
     desired_columns = ["lon", "lat", "year", "hash", "file_size", "grid_size"]
@@ -212,11 +230,13 @@ def _ensure_registry(cache_path: Path, url: str, refresh: bool = False) -> Path:
 
     with open(tmp_path, "wb") as f:
         downloaded = 0
-        while chunk := resp.read(8 * 1024 * 1024):  # 8 MB chunks
+        while chunk := resp.read(DOWNLOAD_CHUNK_SIZE):
             f.write(chunk)
             downloaded += len(chunk)
             if total:
-                logger.info(f"  {downloaded / 1024 / 1024:.0f} / {total / 1024 / 1024:.0f} MB")
+                logger.info(
+                    f"  {downloaded / 1024 / 1024:.0f} / {total / 1024 / 1024:.0f} MB"
+                )
 
     tmp_path.rename(cache_path)
     logger.info(f"Registry cached at {cache_path}")
@@ -307,10 +327,11 @@ class SearchTessera(SearchProvider):
             q_end: Inclusive query end datetime, or None for open end.
 
         Returns:
-            Years between 2017 and 2025 that intersect the query range.
+            Years between ``MIN_TESSERA_YEAR`` and ``MAX_TESSERA_YEAR`` that
+            intersect the query range.
         """
         years: list[int] = []
-        for yr in range(2017, 2026):
+        for yr in range(MIN_TESSERA_YEAR, MAX_TESSERA_YEAR + 1):
             yr_start = datetime(yr, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
             yr_end = datetime(yr, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
             if q_start is not None and yr_end < q_start:
@@ -408,7 +429,7 @@ class SearchTessera(SearchProvider):
         if gdf.empty:
             return gdf
         hrefs = gdf["href"].tolist()
-        max_workers = min(32, len(hrefs))
+        max_workers = min(MAX_HREF_CHECK_WORKERS, len(hrefs))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             exists_flags = list(executor.map(check_href_exists, hrefs))
         return cast(gpd.GeoDataFrame, gdf[exists_flags])
