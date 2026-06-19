@@ -19,6 +19,7 @@ from aereo.schemas import AssetSchema
 from pandera.typing.geopandas import GeoDataFrame
 from pyproj import Transformer
 from shapely.geometry import box
+from shapely.geometry.base import BaseGeometry
 from structlog import get_logger
 
 logger = get_logger()
@@ -204,6 +205,28 @@ class SearchTessera(SearchProvider):
     """Search provider for GeoTessera satellite embeddings."""
 
     supported_collections: Sequence[str] = ["geotessera"]
+
+    def _intersects_geometry(self) -> BaseGeometry | None:
+        """Return the normalized AOI geometry, or None for a global search.
+
+        ``SearchProvider`` validates ``intersects`` into a ``BaseGeometry``
+        at construction time, but its declared type is wider. This accessor
+        provides a typed view and raises if normalization failed.
+
+        Returns:
+            Normalized AOI geometry, or ``None`` if no spatial filter.
+
+        Raises:
+            TypeError: If ``intersects`` was not normalized to a geometry.
+        """
+        geom = self.intersects
+        if geom is None:
+            return None
+        if not isinstance(geom, BaseGeometry):
+            raise TypeError(
+                f"Expected intersects to be normalized to BaseGeometry, got {type(geom)}"
+            )
+        return geom
     start_datetime: datetime | None = None
     end_datetime: datetime | None = None
     base_url: str = TESSERA_BASE_URL
@@ -221,8 +244,9 @@ class SearchTessera(SearchProvider):
             Validated GeoDataFrame containing matched tile metadata.
         """
         # Bounding box for region
-        if self.intersects is not None:
-            bbox = self.intersects.bounds
+        geom = self._intersects_geometry()
+        if geom is not None:
+            bbox = geom.bounds
         else:
             bbox = (-180.0, -90.0, 180.0, 90.0)
 
@@ -311,8 +335,8 @@ class SearchTessera(SearchProvider):
         gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
 
         # Apply high-precision geometry intersection if a shape was provided
-        if self.intersects is not None:
-            gdf = gdf[gdf.intersects(self.intersects)]
+        if geom is not None:
+            gdf = cast(gpd.GeoDataFrame, gdf[gdf.intersects(geom)])
 
         # Check if href exists if check_href is True
         if self.check_href and not gdf.empty:
@@ -320,12 +344,12 @@ class SearchTessera(SearchProvider):
             max_workers = min(32, len(hrefs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 exists_flags = list(executor.map(check_href_exists, hrefs))
-            gdf = gdf[exists_flags]
+            gdf = cast(gpd.GeoDataFrame, gdf[exists_flags])
 
         if gdf.empty:
             return self.empty_result()
 
-        return cast(GeoDataFrame[AssetSchema], AssetSchema.validate(gdf))
+        return cast(GeoDataFrame[AssetSchema], AssetSchema.validate(cast(pd.DataFrame, gdf)))
 
     @staticmethod
     def _normalize_datetime(dt: datetime | None) -> datetime | None:
