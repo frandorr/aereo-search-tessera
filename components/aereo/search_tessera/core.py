@@ -10,16 +10,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Mapping, cast
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import geopandas as gpd
 import pandas as pd
 import pyarrow.parquet as pq
-from aereo.interfaces import SearchProvider
+from aereo.interfaces import empty_asset_result
 from aereo.schemas import AssetSchema
 from pandera.typing.geopandas import GeoDataFrame
+from pydantic import ConfigDict, validate_call
 from pyproj import Transformer
 from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
@@ -280,241 +281,279 @@ def check_href_exists(href: str, timeout: float = 5.0) -> bool:
             return False
 
 
-class SearchTessera(SearchProvider):
-    """Search provider for GeoTessera satellite embeddings.
+def _intersects_geometry(intersects: Any) -> BaseGeometry | None:
+    """Return the normalized AOI geometry, or None for a global search.
 
-    Queries the GeoTessera registry parquet for tiles intersecting a given
-    geometry and time range, then returns an ``AssetSchema``-validated
-    GeoDataFrame with per-tile metadata and asset hrefs.
+    Args:
+        intersects: AOI geometry input.
+
+    Returns:
+        Normalized AOI geometry, or ``None`` if no spatial filter.
+
+    Raises:
+        TypeError: If ``intersects`` is not a Shapely geometry.
     """
+    if intersects is None:
+        return None
+    if isinstance(intersects, BaseGeometry):
+        return intersects
+    if isinstance(intersects, (dict, str, Path)):
+        from aereo.interfaces import normalize_geometry_input
+        return normalize_geometry_input(intersects)
+    raise TypeError(
+        f"Expected intersects to be a BaseGeometry, dict, str, Path, or None, got {type(intersects)}"
+    )
 
-    supported_collections: Sequence[str] = ["geotessera"]
-    start_datetime: datetime | None = None
-    end_datetime: datetime | None = None
-    base_url: str = TESSERA_BASE_URL
-    tessera_version: str = "v1"
-    tessera_variant: str = DEFAULT_VARIANT
-    registry_path: Path | None = None
-    registry_filename: str = "manifest.parquet"
-    refresh_registry: bool = False
-    check_href: bool = False
 
-    def _intersects_geometry(self) -> BaseGeometry | None:
-        """Return the normalized AOI geometry, or None for a global search.
+def _matching_years(
+    q_start: datetime | None, q_end: datetime | None
+) -> list[int]:
+    """Return the years that overlap the query temporal range.
 
-        ``SearchProvider`` validates ``intersects`` into a ``BaseGeometry``
-        at construction time, but its declared type is wider. This accessor
-        provides a typed view and raises if normalization failed.
+    Args:
+        q_start: Inclusive query start datetime, or None for open start.
+        q_end: Inclusive query end datetime, or None for open end.
 
-        Returns:
-            Normalized AOI geometry, or ``None`` if no spatial filter.
+    Returns:
+        Years between ``MIN_TESSERA_YEAR`` and ``MAX_TESSERA_YEAR`` that
+        intersect the query range.
+    """
+    years: list[int] = []
+    for yr in range(MIN_TESSERA_YEAR, MAX_TESSERA_YEAR + 1):
+        yr_start = datetime(yr, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        yr_end = datetime(yr, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+        if q_start is not None and yr_end < q_start:
+            continue
+        if q_end is not None and yr_start > q_end:
+            continue
+        years.append(yr)
+    return years
 
-        Raises:
-            TypeError: If ``intersects`` was not normalized to a geometry.
-        """
-        geom = self.intersects
-        if geom is None:
-            return None
-        if not isinstance(geom, BaseGeometry):
-            raise TypeError(
-                f"Expected intersects to be normalized to BaseGeometry, got {type(geom)}"
-            )
-        return geom
 
-    def _matching_years(
-        self, q_start: datetime | None, q_end: datetime | None
-    ) -> list[int]:
-        """Return the years that overlap the query temporal range.
+def _resolve_registry(
+    registry_path: Path | None,
+    base_url: str,
+    registry_filename: str,
+    version_path: str,
+    refresh_registry: bool,
+) -> Path:
+    """Resolve the registry parquet path, downloading the default if needed.
 
-        Args:
-            q_start: Inclusive query start datetime, or None for open start.
-            q_end: Inclusive query end datetime, or None for open end.
+    Args:
+        registry_path: Explicit local registry path, or None to download default.
+        base_url: Remote base URL for the default registry.
+        registry_filename: Filename of the registry on the remote server.
+        version_path: Version path component from :func:`_parse_dataset_version`.
+        refresh_registry: Force re-download even if cached.
 
-        Returns:
-            Years between ``MIN_TESSERA_YEAR`` and ``MAX_TESSERA_YEAR`` that
-            intersect the query range.
-        """
-        years: list[int] = []
-        for yr in range(MIN_TESSERA_YEAR, MAX_TESSERA_YEAR + 1):
-            yr_start = datetime(yr, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-            yr_end = datetime(yr, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
-            if q_start is not None and yr_end < q_start:
-                continue
-            if q_end is not None and yr_start > q_end:
-                continue
-            years.append(yr)
-        return years
+    Returns:
+        Path to the registry parquet file.
 
-    def _resolve_registry(self, version_path: str) -> Path:
-        """Resolve the registry parquet path, downloading the default if needed.
+    Raises:
+        FileNotFoundError: If an explicit ``registry_path`` does not exist.
+    """
+    if registry_path is not None:
+        resolved_path = registry_path.expanduser().resolve()
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"Registry file not found: {resolved_path}")
+        return resolved_path
 
-        Args:
-            version_path: Version path component from :func:`_parse_dataset_version`.
+    resolved_path = _default_registry_cache_path(version_path)
+    url = f"{base_url}/{version_path}/{registry_filename}"
+    _ensure_registry(resolved_path, url, refresh=refresh_registry)
+    return resolved_path
 
-        Returns:
-            Path to the registry parquet file.
 
-        Raises:
-            FileNotFoundError: If an explicit ``registry_path`` does not exist.
-        """
-        if self.registry_path is not None:
-            registry_path = self.registry_path.expanduser().resolve()
-            if not registry_path.exists():
-                raise FileNotFoundError(f"Registry file not found: {registry_path}")
-            return registry_path
+def _build_asset_rows(
+    tiles_df: pd.DataFrame,
+    base_url: str,
+    variant: str,
+    version_path: str,
+    version_norm: str,
+    embeddings_subdir: str,
+) -> list[dict[str, Any]]:
+    """Build AssetSchema rows from tile metadata.
 
-        registry_path = _default_registry_cache_path(version_path)
-        url = f"{self.base_url}/{version_path}/{self.registry_filename}"
-        _ensure_registry(registry_path, url, refresh=self.refresh_registry)
-        return registry_path
+    Args:
+        tiles_df: DataFrame of tile metadata from :func:`load_tiles_for_region`.
+        base_url: Base URL for asset hrefs.
+        variant: Dataset variant name.
+        version_path: Version path component used in asset hrefs.
+        version_norm: Normalized version string stored in row metadata.
+        embeddings_subdir: Variant-aware embeddings subdirectory.
 
-    def _build_asset_rows(
-        self,
-        tiles_df: pd.DataFrame,
-        version_path: str,
-        version_norm: str,
-        embeddings_subdir: str,
-    ) -> list[dict[str, Any]]:
-        """Build AssetSchema rows from tile metadata.
+    Returns:
+        List of AssetSchema-compatible row dictionaries.
+    """
+    rows: list[dict[str, Any]] = []
+    for raw in tiles_df.itertuples(index=False):
+        tile = cast(Any, raw)
+        lon = float(tile.lon)
+        lat = float(tile.lat)
+        year = int(tile.year)
+        utm = tile_utm_info(lon, lat)
+        grid_name = f"grid_{lon:.2f}_{lat:.2f}"
+        wgs_bounds = tile_to_bounds(lon, lat)
 
-        Args:
-            tiles_df: DataFrame of tile metadata from :func:`load_tiles_for_region`.
-            version_path: Version path component used in asset hrefs.
-            version_norm: Normalized version string stored in row metadata.
-            embeddings_subdir: Variant-aware embeddings subdirectory.
+        rows.append(
+            {
+                "id": f"{grid_name}_{year}",
+                "collection": "geotessera",
+                "geometry": box(*wgs_bounds),
+                "start_time": datetime(year, 1, 1, tzinfo=timezone.utc),
+                "end_time": datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
+                "href": f"{base_url}/{version_path}/{embeddings_subdir}/{year}/{grid_name}/{grid_name}.npy",
+                "crs": utm["crs"],
+                "tile_lon": lon,
+                "tile_lat": lat,
+                "tile_year": year,
+                "tile_utm_crs": utm["crs"],
+                "tile_utm_epsg": utm["epsg"],
+                "tile_utm_bbox": utm["utm_bbox"],
+                "tile_shape": utm["shape"],
+                "tile_hash": getattr(tile, "hash", None),
+                "tile_file_size": getattr(tile, "file_size", None),
+                "tessera_version": version_norm,
+                "tessera_variant": variant,
+            }
+        )
+    return rows
 
-        Returns:
-            List of AssetSchema-compatible row dictionaries.
-        """
-        base_url = self.base_url
-        variant = self.tessera_variant
-        rows: list[dict[str, Any]] = []
-        for raw in tiles_df.itertuples(index=False):
-            tile = cast(Any, raw)
-            lon = float(tile.lon)
-            lat = float(tile.lat)
-            year = int(tile.year)
-            utm = tile_utm_info(lon, lat)
-            grid_name = f"grid_{lon:.2f}_{lat:.2f}"
-            wgs_bounds = tile_to_bounds(lon, lat)
 
-            rows.append(
-                {
-                    "id": f"{grid_name}_{year}",
-                    "collection": "geotessera",
-                    "geometry": box(*wgs_bounds),
-                    "start_time": datetime(year, 1, 1, tzinfo=timezone.utc),
-                    "end_time": datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
-                    "href": f"{base_url}/{version_path}/{embeddings_subdir}/{year}/{grid_name}/{grid_name}.npy",
-                    "crs": utm["crs"],
-                    "tile_lon": lon,
-                    "tile_lat": lat,
-                    "tile_year": year,
-                    "tile_utm_crs": utm["crs"],
-                    "tile_utm_epsg": utm["epsg"],
-                    "tile_utm_bbox": utm["utm_bbox"],
-                    "tile_shape": utm["shape"],
-                    "tile_hash": getattr(tile, "hash", None),
-                    "tile_file_size": getattr(tile, "file_size", None),
-                    "tessera_version": version_norm,
-                    "tessera_variant": variant,
-                }
-            )
-        return rows
+def _filter_existing_hrefs(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Drop rows whose asset href does not exist.
 
-    def _filter_existing_hrefs(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Drop rows whose asset href does not exist.
+    Args:
+        gdf: GeoDataFrame with an ``href`` column.
 
-        Args:
-            gdf: GeoDataFrame with an ``href`` column.
+    Returns:
+        GeoDataFrame containing only rows with reachable hrefs.
+    """
+    if gdf.empty:
+        return gdf
+    hrefs = gdf["href"].tolist()
+    max_workers = min(MAX_HREF_CHECK_WORKERS, len(hrefs))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        exists_flags = list(executor.map(check_href_exists, hrefs))
+    return cast(gpd.GeoDataFrame, gdf[exists_flags])
 
-        Returns:
-            GeoDataFrame containing only rows with reachable hrefs.
-        """
-        if gdf.empty:
-            return gdf
-        hrefs = gdf["href"].tolist()
-        max_workers = min(MAX_HREF_CHECK_WORKERS, len(hrefs))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            exists_flags = list(executor.map(check_href_exists, hrefs))
-        return cast(gpd.GeoDataFrame, gdf[exists_flags])
 
-    def __call__(self) -> GeoDataFrame[AssetSchema]:
-        """Search GeoTessera registry and return AssetSchema-compliant GeoDataFrame.
+def _normalize_datetime(dt: datetime | None) -> datetime | None:
+    """Ensure datetime is timezone-aware UTC.
 
-        Returns:
-            Validated GeoDataFrame containing matched tile metadata.
+    Args:
+        dt: Datetime to normalize, or None.
 
-        Raises:
-            FileNotFoundError: If an explicit ``registry_path`` does not exist.
-            TypeError: If ``intersects`` could not be normalized to a geometry.
-        """
-        # Bounding box for region
-        geom = self._intersects_geometry()
-        if geom is not None:
-            bbox = geom.bounds
-        else:
-            bbox = (-180.0, -90.0, 180.0, 90.0)
+    Returns:
+        Timezone-aware UTC datetime, or None if input was None.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
-        # Normalize datetimes
-        q_start = self._normalize_datetime(self.start_datetime)
-        q_end = self._normalize_datetime(self.end_datetime)
 
-        # Determine which years intersect the query range
-        matching_years = self._matching_years(q_start, q_end)
-        if not matching_years:
-            return self.empty_result()
+@validate_call(config=ConfigDict(arbitrary_types_allowed=True))
+def search_tessera(
+    collections: Mapping[str, Sequence[str]] | Sequence[str] | None,
+    intersects: BaseGeometry | dict[str, Any] | str | Path | None,
+    start_datetime: datetime | None,
+    end_datetime: datetime | None,
+    base_url: str = TESSERA_BASE_URL,
+    tessera_version: str = "v1",
+    tessera_variant: str = DEFAULT_VARIANT,
+    registry_path: Path | None = None,
+    registry_filename: str = "manifest.parquet",
+    refresh_registry: bool = False,
+    check_href: bool = False,
+) -> GeoDataFrame[AssetSchema]:
+    """Search GeoTessera registry and return AssetSchema-compliant GeoDataFrame.
 
-        # Resolve version, variant and paths
-        version_path, version_norm = _parse_dataset_version(self.tessera_version)
-        embeddings_subdir = _variant_subdir(self.tessera_variant)
+    Args:
+        collections: Collection(s) to search.
+        intersects: AOI geometry.
+        start_datetime: Optional start of temporal window.
+        end_datetime: Optional end of temporal window.
+        base_url: Base URL of the GeoTessera catalog.
+        tessera_version: Dataset version (e.g. ``"v1"`` or ``"v1.1"``).
+        tessera_variant: Dataset variant (e.g. ``"vultr"`` or ``"cambridge"``).
+        registry_path: Optional explicit local registry parquet path.
+        registry_filename: Filename of the remote registry.
+        refresh_registry: Force re-download of the registry.
+        check_href: Verify each asset href exists before returning.
 
-        # Handle registry path and bootstrapping
-        registry_path = self._resolve_registry(version_path)
+    Returns:
+        Validated GeoDataFrame containing matched tile metadata.
 
-        # Load tiles from parquet
-        tiles_dfs: list[pd.DataFrame] = []
-        for year in matching_years:
-            df = load_tiles_for_region(bbox, year, registry_path)
-            if not df.empty:
-                tiles_dfs.append(df)
+    Raises:
+        FileNotFoundError: If an explicit ``registry_path`` does not exist.
+        TypeError: If ``intersects`` is not a Shapely geometry.
+    """
+    # Bounding box for region
+    geom = _intersects_geometry(intersects)
+    if geom is not None:
+        bbox = geom.bounds
+    else:
+        bbox = (-180.0, -90.0, 180.0, 90.0)
 
-        if not tiles_dfs:
-            return self.empty_result()
+    # Normalize datetimes
+    q_start = _normalize_datetime(start_datetime)
+    q_end = _normalize_datetime(end_datetime)
 
-        tiles_df = pd.concat(tiles_dfs, ignore_index=True)
-        rows = self._build_asset_rows(tiles_df, version_path, version_norm, embeddings_subdir)
+    # Determine which years intersect the query range
+    matching_years = _matching_years(q_start, q_end)
+    if not matching_years:
+        return empty_asset_result()
 
-        if not rows:
-            return self.empty_result()
+    # Resolve version, variant and paths
+    version_path, version_norm = _parse_dataset_version(tessera_version)
+    embeddings_subdir = _variant_subdir(tessera_variant)
 
-        gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
+    # Handle registry path and bootstrapping
+    registry_path = _resolve_registry(
+        registry_path,
+        base_url,
+        registry_filename,
+        version_path,
+        refresh_registry,
+    )
 
-        # Apply high-precision geometry intersection if a shape was provided
-        if geom is not None:
-            gdf = cast(gpd.GeoDataFrame, gdf[gdf.intersects(geom)])
+    # Load tiles from parquet
+    tiles_dfs: list[pd.DataFrame] = []
+    for year in matching_years:
+        df = load_tiles_for_region(bbox, year, registry_path)
+        if not df.empty:
+            tiles_dfs.append(df)
 
-        # Check if href exists if check_href is True
-        if self.check_href and not gdf.empty:
-            gdf = self._filter_existing_hrefs(gdf)
+    if not tiles_dfs:
+        return empty_asset_result()
 
-        if gdf.empty:
-            return self.empty_result()
+    tiles_df = pd.concat(tiles_dfs, ignore_index=True)
+    rows = _build_asset_rows(
+        tiles_df,
+        base_url,
+        tessera_variant,
+        version_path,
+        version_norm,
+        embeddings_subdir,
+    )
 
-        return cast(GeoDataFrame[AssetSchema], AssetSchema.validate(cast(pd.DataFrame, gdf)))
+    if not rows:
+        return empty_asset_result()
 
-    @staticmethod
-    def _normalize_datetime(dt: datetime | None) -> datetime | None:
-        """Ensure datetime is timezone-aware UTC.
+    gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
 
-        Args:
-            dt: Datetime to normalize, or None.
+    # Apply high-precision geometry intersection if a shape was provided
+    if geom is not None:
+        gdf = cast(gpd.GeoDataFrame, gdf[gdf.intersects(geom)])
 
-        Returns:
-            Timezone-aware UTC datetime, or None if input was None.
-        """
-        if dt is None:
-            return None
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+    # Check if href exists if check_href is True
+    if check_href and not gdf.empty:
+        gdf = _filter_existing_hrefs(gdf)
+
+    if gdf.empty:
+        return empty_asset_result()
+
+    return cast(GeoDataFrame[AssetSchema], AssetSchema.validate(cast(pd.DataFrame, gdf)))
+

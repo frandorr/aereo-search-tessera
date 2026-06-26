@@ -1,5 +1,5 @@
 """Search implementation for GeoTessera satellite embeddings."""
 
-from aereo.search_tessera.core import SearchTessera
+from aereo.search_tessera.core import search_tessera
 
-__all__ = ["SearchTessera"]
+__all__ = ["search_tessera"]
