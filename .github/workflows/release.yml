@@ -43,27 +43,16 @@ jobs:
 
       - name: Build package
         run: |
-          cd projects/${{ steps.tag.outputs.package }}
-
-          echo "Current dir:"
-          pwd
-
-          echo "Project files:"
-          ls -la
-
-          rm -rf ../../dist
-          uv build
-
-          echo "Dist contents in root:"
-          ls -la ../../dist || true
+          uv build --project projects/${{ steps.tag.outputs.package }} --out-dir projects/${{ steps.tag.outputs.package }}/dist
+          ls -la projects/${{ steps.tag.outputs.package }}/dist || true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: dist/
+          packages-dir: projects/${{ steps.tag.outputs.package }}/dist
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: projects/${{ steps.tag.outputs.package }}/dist/*
           generate_release_notes: true
