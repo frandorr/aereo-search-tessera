@@ -8,3 +8,6 @@ dist/
 build/
 *.egg-info/
 .env
+
+# Agent tooling (local only)
+.agents/
